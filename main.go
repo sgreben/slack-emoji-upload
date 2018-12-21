@@ -157,7 +157,10 @@ func obtainToken() (string, error) {
 
 func listEmoji() (map[string]string, error) {
 	apiURL := fmt.Sprintf("%s/api/emoji.list", baseURL)
-	req, _ := http.NewRequest(http.MethodGet, apiURL, nil)
+	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", config.Token))
 
 	<-everyThreeSeconds
@@ -190,7 +193,10 @@ func notifyEmojiUploaded(messageJSON string) error {
 	}
 
 	apiURL := fmt.Sprintf("%s/api/chat.postMessage", baseURL)
-	req, _ := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(messageJSON))
+	req, err := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(messageJSON))
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", config.Token))
 	req.Header.Set("Content-Type", "application/json")
 
