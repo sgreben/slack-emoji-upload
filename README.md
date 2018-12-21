@@ -40,11 +40,9 @@ Options:
   -team string
         Slack team (required when -token not specified)
 
-  -loop
-        repeatedly sync
   -notify-channel string
-        Notify this channel on successful uploads
-   -quiet
+        notify this channel on successful uploads
+  -quiet
         suppress log output
 ```
 
