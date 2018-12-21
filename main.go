@@ -28,7 +28,6 @@ var config struct {
 	Token         string
 	Quiet         bool
 	NotifyChannel string
-	Loop          bool
 }
 
 var (
@@ -65,7 +64,6 @@ func init() {
 	flag.StringVar(&config.Email, "email", "", "user email")
 	flag.StringVar(&config.Password, "password", "", "user password")
 	flag.BoolVar(&config.Quiet, "quiet", false, "suppress log output")
-	flag.BoolVar(&config.Loop, "loop", false, "repeatedly sync")
 	flag.Parse()
 
 	if config.Quiet {
@@ -280,12 +278,7 @@ func uploadEmoji(fileName, emojiName string) error {
 
 func main() {
 	files := flag.Args()
-	for {
-		uploadFilesAndPrintSummary(files)
-		if !config.Loop {
-			return
-		}
-	}
+	uploadFilesAndPrintSummary(files)
 }
 
 func uploadFilesAndPrintSummary(files []string) {

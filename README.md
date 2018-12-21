@@ -39,6 +39,13 @@ Options:
         user password (required when -token not specified)
   -team string
         Slack team (required when -token not specified)
+
+  -loop
+        repeatedly sync
+  -notify-channel string
+        Notify this channel on successful uploads
+   -quiet
+        suppress log output
 ```
 
 ## Authentication

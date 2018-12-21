@@ -1,4 +1,4 @@
-VERSION = 1.1.3
+VERSION = 1.2.0
 
 APP      := slack-emoji-upload
 PACKAGES := $(shell go list -f {{.Dir}} ./...)
