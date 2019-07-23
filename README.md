@@ -39,6 +39,8 @@ Options:
         user password (required when -token not specified)
   -team string
         Slack team (required when -token not specified)
+  -rate-limit duration
+        upload rate limit (1 emoji per ...) (default 2s)
 
   -notify-channel string
         notify this channel on successful uploads
@@ -55,6 +57,8 @@ To authenticate with a token (`-token` option), you need to use a `xoxs-*` Slack
 ```
 xoxs-abcdefghij-klmnopqrstuv-wxyzabcdefgh-ijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrst
 ```
+
+[**How to obtain the Slack API token**](https://github.com/jackellenberger/emojme#finding-a-slack-token)
 
 ### Password
 
