@@ -28,13 +28,15 @@ var config struct {
 	Token         string
 	Quiet         bool
 	NotifyChannel string
+	RateLimit     time.Duration
 }
 
 var (
-	cookieJar, _      = cookiejar.New(nil)
-	client            = &http.Client{Jar: cookieJar}
-	everyTwoSeconds   <-chan time.Time
-	everyThreeSeconds <-chan time.Time
+	cookieJar, _         = cookiejar.New(nil)
+	client               = &http.Client{Jar: cookieJar}
+	everyTwoSeconds      <-chan time.Time
+	everyThreeSeconds    <-chan time.Time
+	uploadEmojiRateLimit <-chan time.Time
 )
 
 var (
@@ -64,6 +66,7 @@ func init() {
 	flag.StringVar(&config.Email, "email", "", "user email")
 	flag.StringVar(&config.Password, "password", "", "user password")
 	flag.BoolVar(&config.Quiet, "quiet", false, "suppress log output")
+	flag.DurationVar(&config.RateLimit, "rate-limit", time.Second*2, "upload rate limit (1 emoji per ...)")
 	flag.Parse()
 
 	if config.Quiet {
@@ -95,6 +98,7 @@ func init() {
 
 	everyTwoSeconds = time.Tick(2 * time.Second)
 	everyThreeSeconds = time.Tick(3 * time.Second)
+	uploadEmojiRateLimit = time.Tick(config.RateLimit)
 }
 
 func obtainToken() (string, error) {
@@ -248,7 +252,7 @@ func uploadEmoji(fileName, emojiName string) error {
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Content-Type", bodyWriter.FormDataContentType())
 
-	<-everyTwoSeconds
+	<-uploadEmojiRateLimit
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
