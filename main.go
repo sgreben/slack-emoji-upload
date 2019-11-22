@@ -16,8 +16,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -28,15 +28,11 @@ var config struct {
 	Token         string
 	Quiet         bool
 	NotifyChannel string
-	RateLimit     time.Duration
 }
 
 var (
-	cookieJar, _         = cookiejar.New(nil)
-	client               = &http.Client{Jar: cookieJar}
-	everyTwoSeconds      <-chan time.Time
-	everyThreeSeconds    <-chan time.Time
-	uploadEmojiRateLimit <-chan time.Time
+	cookieJar, _ = cookiejar.New(nil)
+	client       = &http.Client{Jar: cookieJar}
 )
 
 var (
@@ -66,7 +62,6 @@ func init() {
 	flag.StringVar(&config.Email, "email", "", "user email")
 	flag.StringVar(&config.Password, "password", "", "user password")
 	flag.BoolVar(&config.Quiet, "quiet", false, "suppress log output")
-	flag.DurationVar(&config.RateLimit, "rate-limit", time.Second*2, "upload rate limit (1 emoji per ...)")
 	flag.Parse()
 
 	if config.Quiet {
@@ -96,9 +91,6 @@ func init() {
 		log.Fatal("required parameters: -token or -email/-password")
 	}
 
-	everyTwoSeconds = time.Tick(2 * time.Second)
-	everyThreeSeconds = time.Tick(3 * time.Second)
-	uploadEmojiRateLimit = time.Tick(config.RateLimit)
 }
 
 func obtainToken() (string, error) {
@@ -108,7 +100,6 @@ func obtainToken() (string, error) {
 		return "", err
 	}
 
-	<-everyTwoSeconds
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -138,7 +129,6 @@ func obtainToken() (string, error) {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	<-everyTwoSeconds
 	resp, err = client.Do(req)
 	if err != nil {
 		return "", err
@@ -165,7 +155,6 @@ func listEmoji() (map[string]string, error) {
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", config.Token))
 
-	<-everyThreeSeconds
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -202,7 +191,6 @@ func notifyEmojiUploaded(messageJSON string) error {
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", config.Token))
 	req.Header.Set("Content-Type", "application/json")
 
-	<-everyTwoSeconds
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -225,6 +213,7 @@ func notifyEmojiUploaded(messageJSON string) error {
 }
 
 func uploadEmoji(fileName, emojiName string) error {
+	log.Printf("%s: uploading %q", emojiName, fileName)
 	f, err := os.Open(fileName)
 	if err != nil {
 		return err
@@ -252,12 +241,23 @@ func uploadEmoji(fileName, emojiName string) error {
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Content-Type", bodyWriter.FormDataContentType())
 
-	<-uploadEmojiRateLimit
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+
+	// Handle Slack rate limiting by waiting for the Retry-After value then retrying
+	if resp.StatusCode == http.StatusTooManyRequests {
+		retryAfterStr := resp.Header.Get("Retry-After")
+		retryAfter, err := strconv.Atoi(retryAfterStr)
+		if err != nil {
+			return fmt.Errorf("rate limit 'Retry-After' header value %q not an int. %v", retryAfterStr, err)
+		}
+		log.Printf("Slack rate limit hit, retrying after %d seconds", retryAfter)
+		time.Sleep(time.Duration(retryAfter) * time.Second)
+		return uploadEmoji(fileName, emojiName)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
@@ -286,11 +286,7 @@ func main() {
 }
 
 func uploadFilesAndPrintSummary(files []string) {
-	var (
-		summary   = map[string][]string{}
-		summaryMu sync.Mutex
-	)
-	var wg sync.WaitGroup
+	var summary = map[string][]string{}
 	log.Println("fetching emoji list")
 	currentEmoji, err := listEmoji()
 	if err != nil {
@@ -299,7 +295,6 @@ func uploadFilesAndPrintSummary(files []string) {
 	}
 
 	const skipKey = "skip"
-	const successKeyRestored = "successRestored"
 	const successKey = "successAdded"
 
 	for _, filePath := range files {
@@ -310,25 +305,14 @@ func uploadFilesAndPrintSummary(files []string) {
 			summary[skipKey] = append(summary[skipKey], emojiName)
 			continue
 		}
-		wg.Add(1)
-		go func(filePath string) {
-			defer wg.Done()
-			log.Printf("%s: uploading %q", emojiName, filePath)
-			err := uploadEmoji(filePath, emojiName)
-			if err != nil {
-				error := err.Error()
-				summaryMu.Lock()
-				summary[error] = append(summary[error], emojiName)
-				summaryMu.Unlock()
-				return
-			}
+		err := uploadEmoji(filePath, emojiName)
+		if err != nil {
+			summary[err.Error()] = append(summary[err.Error()], emojiName)
+			continue
+		}
 
-			summaryMu.Lock()
-			summary[successKey] = append(summary[successKey], emojiName)
-			summaryMu.Unlock()
-		}(filePath)
+		summary[successKey] = append(summary[successKey], emojiName)
 	}
-	wg.Wait()
 
 	if len(summary[successKey]) > 0 {
 		err = notifyEmojiUploaded(notificationMessageJSON(summary[successKey]))
@@ -352,5 +336,8 @@ func uploadFilesAndPrintSummary(files []string) {
 			output.Emoji = nil
 		}
 	}
-	json.NewEncoder(os.Stdout).Encode(output)
+
+	// Prettify JSON before printing out
+	marshaled, _ := json.MarshalIndent(output, "", "\t")
+	log.Printf("%s\n", marshaled)
 }
