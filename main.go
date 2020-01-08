@@ -28,6 +28,7 @@ var config struct {
 	Token         string
 	Quiet         bool
 	NotifyChannel string
+    Replace       bool
 }
 
 var (
@@ -62,6 +63,7 @@ func init() {
 	flag.StringVar(&config.Email, "email", "", "user email")
 	flag.StringVar(&config.Password, "password", "", "user password")
 	flag.BoolVar(&config.Quiet, "quiet", false, "suppress log output")
+	flag.BoolVar(&config.Replace, "delete", false, "delete and replace if emoji already exists")
 	flag.Parse()
 
 	if config.Quiet {
@@ -212,6 +214,65 @@ func notifyEmojiUploaded(messageJSON string) error {
 	return nil
 }
 
+func deleteEmoji(emojiName string) error {
+	log.Printf("deleting %s", emojiName)
+	apiURL := fmt.Sprintf("%s/api/emoji.remove", baseURL)
+	body := bytes.NewBuffer(nil)
+	bodyWriter := multipart.NewWriter(body)
+	bodyWriter.WriteField("mode", "data")
+	bodyWriter.WriteField("name", emojiName)
+	bodyWriter.WriteField("token", config.Token)
+	bodyWriter.Close()
+
+	req, err := http.NewRequest(http.MethodPost, apiURL, body)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Origin", baseURL)
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Content-Type", bodyWriter.FormDataContentType())
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Handle Slack rate limiting by waiting for the Retry-After value then retrying
+	if resp.StatusCode == http.StatusTooManyRequests {
+		retryAfterStr := resp.Header.Get("Retry-After")
+		retryAfter, err := strconv.Atoi(retryAfterStr)
+		if err != nil {
+			return fmt.Errorf("rate limit 'Retry-After' header value %q not an int. %v", retryAfterStr, err)
+		}
+		log.Printf("Slack rate limit hit, retrying after %d seconds", retryAfter)
+		time.Sleep(time.Duration(retryAfter) * time.Second)
+		return deleteEmoji(emojiName)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := ioutil.ReadAll(resp.Body)
+		bodyString := string(bodyBytes)
+		return fmt.Errorf("HTTP %d: %q", resp.StatusCode, bodyString)
+	}
+
+	var apiResponse struct {
+		Ok    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&apiResponse)
+	if err != nil {
+		return err
+	}
+	if !apiResponse.Ok {
+		return fmt.Errorf("%s", apiResponse.Error)
+	}
+	return nil
+}
+
+
 func uploadEmoji(fileName, emojiName string) error {
 	log.Printf("%s: uploading %q", emojiName, fileName)
 	f, err := os.Open(fileName)
@@ -301,9 +362,14 @@ func uploadFilesAndPrintSummary(files []string) {
 		ext := filepath.Ext(filePath)
 		emojiName := strings.TrimSuffix(filepath.Base(filePath), ext)
 		if _, ok := currentEmoji[emojiName]; ok {
+            if config.Replace {
+			    log.Printf("%s: already exists, deleting", emojiName)
+                deleteEmoji(emojiName)
+            } else {
 			log.Printf("%s: already exists, skipping", emojiName)
 			summary[skipKey] = append(summary[skipKey], emojiName)
 			continue
+        }
 		}
 		err := uploadEmoji(filePath, emojiName)
 		if err != nil {
