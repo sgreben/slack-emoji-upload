@@ -28,7 +28,7 @@ var config struct {
 	Token         string
 	Quiet         bool
 	NotifyChannel string
-    Replace       bool
+	Replace       bool
 }
 
 var (
@@ -272,7 +272,6 @@ func deleteEmoji(emojiName string) error {
 	return nil
 }
 
-
 func uploadEmoji(fileName, emojiName string) error {
 	log.Printf("%s: uploading %q", emojiName, fileName)
 	f, err := os.Open(fileName)
@@ -362,14 +361,14 @@ func uploadFilesAndPrintSummary(files []string) {
 		ext := filepath.Ext(filePath)
 		emojiName := strings.TrimSuffix(filepath.Base(filePath), ext)
 		if _, ok := currentEmoji[emojiName]; ok {
-            if config.Replace {
-			    log.Printf("%s: already exists, deleting", emojiName)
-                deleteEmoji(emojiName)
-            } else {
-			log.Printf("%s: already exists, skipping", emojiName)
-			summary[skipKey] = append(summary[skipKey], emojiName)
-			continue
-        }
+			if config.Replace {
+				log.Printf("%s: already exists, deleting", emojiName)
+				deleteEmoji(emojiName)
+			} else {
+				log.Printf("%s: already exists, skipping", emojiName)
+				summary[skipKey] = append(summary[skipKey], emojiName)
+				continue
+			}
 		}
 		err := uploadEmoji(filePath, emojiName)
 		if err != nil {
