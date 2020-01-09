@@ -29,6 +29,7 @@ var config struct {
 	Quiet         bool
 	NotifyChannel string
 	Replace       bool
+	JustDelete    bool
 }
 
 var (
@@ -63,7 +64,8 @@ func init() {
 	flag.StringVar(&config.Email, "email", "", "user email")
 	flag.StringVar(&config.Password, "password", "", "user password")
 	flag.BoolVar(&config.Quiet, "quiet", false, "suppress log output")
-	flag.BoolVar(&config.Replace, "delete", false, "delete and replace if emoji already exists")
+	flag.BoolVar(&config.Replace, "replace", false, "delete and replace if emoji already exists")
+	flag.BoolVar(&config.JustDelete, "delete", false, "delete emojis listed on command line. upload nothing.")
 	flag.Parse()
 
 	if config.Quiet {
@@ -342,7 +344,32 @@ func uploadEmoji(fileName, emojiName string) error {
 
 func main() {
 	files := flag.Args()
-	uploadFilesAndPrintSummary(files)
+	if config.JustDelete {
+		deleteEmojisAndPrintSummary(files)
+	} else {
+		uploadFilesAndPrintSummary(files)
+	}
+}
+
+func deleteEmojisAndPrintSummary(emojiNames []string) {
+	log.Println("fetching current emoji list")
+	currentEmoji, err := listEmoji()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	for _, emojiName := range emojiNames {
+		if _, ok := currentEmoji[emojiName]; !ok {
+			log.Printf("%s: does not exist", emojiName)
+			continue
+		}
+		err = deleteEmoji(emojiName)
+		if err != nil {
+			log.Println("Error deleting %s, %s", emojiName, err.Error())
+			continue
+		}
+		log.Println("deleted %s", emojiName)
+	}
 }
 
 func uploadFilesAndPrintSummary(files []string) {
@@ -363,7 +390,12 @@ func uploadFilesAndPrintSummary(files []string) {
 		if _, ok := currentEmoji[emojiName]; ok {
 			if config.Replace {
 				log.Printf("%s: already exists, deleting", emojiName)
-				deleteEmoji(emojiName)
+				err = deleteEmoji(emojiName)
+				if err != nil {
+					log.Println(err)
+					summary[err.Error()] = append(summary[err.Error()], emojiName)
+					continue
+				}
 			} else {
 				log.Printf("%s: already exists, skipping", emojiName)
 				summary[skipKey] = append(summary[skipKey], emojiName)
@@ -401,7 +433,6 @@ func uploadFilesAndPrintSummary(files []string) {
 			output.Emoji = nil
 		}
 	}
-
 	// Prettify JSON before printing out
 	marshaled, _ := json.MarshalIndent(output, "", "\t")
 	log.Printf("%s\n", marshaled)
