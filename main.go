@@ -72,7 +72,7 @@ func init() {
 		log.SetOutput(ioutil.Discard)
 	}
 
-	if config.Token != "" && config.Email != "" {
+	if config.Token != "" {
 		config.TeamName = "api"
 	}
 
